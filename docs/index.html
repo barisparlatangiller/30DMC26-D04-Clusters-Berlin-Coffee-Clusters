@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where Berlin Brews · Coffee Clusters</title>
+<meta name="description" content="Where do Berlin's cafés cluster, and how do the clusters change over the week? DBSCAN clusters of the cafés that are open at any hour, computed live from OpenStreetMap opening_hours.">
+<meta property="og:title" content="Where Berlin Brews · A Week in Coffee Clusters">
+<meta property="og:description" content="2,619 cafés from OpenStreetMap. Pick a day and a time: the map shows which are open and re-computes their DBSCAN clusters live.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<link href="style.css" rel="stylesheet">
+</head>
+<body>
+<div class="app">
+  <main class="mapwrap">
+    <div id="map" aria-label="Map of Berlin cafés and their clusters"></div>
+    <div class="card legend-card" id="legend" aria-live="polite"></div>
+
+    <div class="card mapbar" id="mapbar">
+      <div class="clock"><b id="clockDay" class="mono">Fri</b><b id="clockTime" class="mono">14:30</b></div>
+      <button class="pill" id="playBtn" title="Play through the week">▶ Play the week</button>
+      <button class="pill" id="nowBtn" title="Jump to the current day and time in Berlin">◷ Now</button>
+      <label class="switch sm"><input type="checkbox" id="hullsT" checked><span class="knob"></span>Cluster outlines</label>
+    </div>
+
+    <div id="tip" class="tip" hidden></div>
+    <div id="loading" class="loading">Loading 2,619 Berlin cafés…</div>
+
+    <div class="intro card" id="intro" hidden>
+      <p class="eyebrow">Welcome</p>
+      <h2>Where Berlin brews, hour by hour</h2>
+      <ol class="steps">
+        <li><b>Every dot is a café</b> mapped in OpenStreetMap (amenity=cafe).</li>
+        <li><b>Pick a day and a time.</b> Each café's opening hours are read live, and only the cafés open at that moment are clustered.</li>
+        <li><b>Coloured areas are DBSCAN clusters:</b> at least 5 open cafés, each within 250 m of the next. Press <b>Play</b> to watch clusters appear and fade over the week.</li>
+      </ol>
+      <p class="hint" style="margin:0 0 14px">Opening hours come from volunteers. Grey rings mean unknown. Nothing here is checked live.</p>
+      <button class="primary" id="introGo">Start exploring</button>
+    </div>
+  </main>
+
+  <aside class="panel card" id="panel">
+    <header class="head">
+      <p class="eyebrow">#30DayMapChallenge · Day 4 · Clusters · Berlin</p>
+      <h1>Where Berlin brews: a week in coffee clusters</h1>
+      <p class="lede" id="lede">&nbsp;</p>
+    </header>
+
+    <section class="block" id="detail" hidden></section>
+
+    <section class="block">
+      <h2 class="label">1 · Day and time</h2>
+      <div class="seg seg7" id="daySeg">
+        <button data-d="0">Mo</button><button data-d="1">Tu</button><button data-d="2">We</button><button data-d="3">Th</button><button data-d="4">Fr</button><button data-d="5">Sa</button><button data-d="6">Su</button>
+      </div>
+      <div class="timerow">
+        <input type="range" id="time" min="0" max="1425" step="15" value="870" aria-label="Time of day">
+        <b id="timeO" class="mono">14:30</b>
+      </div>
+      <div class="ticks mono"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+      <div class="moments" id="moments">
+        <button data-m="0,480">Mon 08:00<small>commute</small></button>
+        <button data-m="2,750">Wed 12:30<small>lunch</small></button>
+        <button data-m="5,660">Sat 11:00<small>brunch</small></button>
+        <button data-m="4,1260">Fri 21:00<small>evening</small></button>
+        <button data-m="5,1410">Sat 23:30<small>late night</small></button>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2 class="label">2 · Which cafés</h2>
+      <div class="seg seg2" id="modeSeg">
+        <button data-mode="open" class="on">Open at this time</button><button data-mode="all">All cafés</button>
+      </div>
+      <div class="kpis k4" id="kpis"></div>
+      <div class="stack sbig" id="ocu"></div>
+      <div class="sbar-l"><span><i class="dot o"></i>open</span><span><i class="dot c"></i>closed</span><span><i class="dot u"></i>unknown</span></div>
+    </section>
+
+    <section class="block">
+      <h2 class="label">3 · DBSCAN settings</h2>
+      <div class="ctl2"><span>Distance (eps)</span>
+        <div class="seg seg3" id="epsSeg"><button data-e="150">150 m</button><button data-e="250" class="on">250 m</button><button data-e="350">350 m</button></div></div>
+      <div class="ctl2"><span>Min. cafés</span>
+        <div class="seg seg3" id="minSeg"><button data-n="3">3</button><button data-n="5" class="on">5</button><button data-n="8">8</button></div></div>
+      <p class="hint">A café joins a cluster if enough other cafés are within the distance. Change the values to see how sensitive the result is.</p>
+      <table class="sens" id="sens" aria-label="Sensitivity: clusters for each setting at the selected time"></table>
+    </section>
+
+    <section class="block">
+      <h2 class="label">The week at a glance</h2>
+      <svg id="week" class="week" viewBox="0 0 330 150" role="img" aria-label="Open cafés and clusters per hour, Monday to Sunday"></svg>
+      <div class="spk"><span><i style="background:var(--accent)"></i>open cafés</span><span><i style="background:var(--ink)"></i>clusters</span><span>click to jump</span></div>
+    </section>
+
+    <section class="block">
+      <h2 class="label">Clusters right now</h2>
+      <ul class="rank cl" id="clist"></ul>
+    </section>
+
+    <section class="block">
+      <h2 class="label">Method, data &amp; limits</h2>
+      <details class="howto" open>
+        <summary>How the clusters are made</summary>
+        <p><b>1 · Data.</b> All OpenStreetMap objects tagged <code>amenity=cafe</code> in Berlin (Overpass export of <span id="osmDate">4 Nov 2026</span>), as points in EPSG:25833.</p>
+        <p><b>2 · Opening hours.</b> Each café's <code>opening_hours</code> tag is parsed in your browser with <a href="https://github.com/opening-hours/opening_hours.js">opening_hours.js</a>, the reference parser of the OSM community. There is one source field and no pre-computed hour columns: the state for the time you pick is calculated on the fly as <b>open</b>, <b>closed</b> or <b>unknown</b>. Missing, unparsable or explicitly “unknown” hours stay unknown and are never counted as closed.</p>
+        <p><b>3 · Week.</b> Days are evaluated for the reference week 9–15 November 2026, which has no public or school holidays in Berlin. Rules for holidays (PH) or special dates in the tag are therefore not shown.</p>
+        <p><b>4 · DBSCAN.</b> The open cafés are clustered with DBSCAN (Ester et al. 1996): a café is a core point if at least <i>min</i> cafés (itself included) lie within <i>eps</i> metres; clusters are chains of core points plus their neighbours, everything else is noise. Default 250 m / 5. Same parameters as scikit-learn, and the pipeline checks the browser version against it.</p>
+        <p><b>5 · Colours</b> follow a cluster through time: when the clock moves, a cluster keeps the colour of the cluster most of its cafés belonged to a moment before. Names come from the Ortsteil where most of its cafés are.</p>
+      </details>
+      <details class="howto">
+        <summary>Data quality &amp; limits</summary>
+        <p id="dq"></p>
+        <p>OSM opening hours are entered by volunteers and can be outdated. Being “open” here means the tag says so, not that the café is open today. The map is not a live check.</p>
+        <p>Cafés are a mix of bakeries with seating, chains, specialty coffee and café-bars, because that is how they are tagged in OSM. Clusters show where cafés concentrate, not where good coffee is.</p>
+        <p>DBSCAN tends to chain dense inner-city areas into one large cluster. The sensitivity table shows how cluster counts change with the settings.</p>
+      </details>
+      <details class="howto">
+        <summary>References</summary>
+        <ol class="refs">
+          <li>Ester, M., Kriegel, H.-P., Sander, J. &amp; Xu, X. (1996). A density-based algorithm for discovering clusters in large spatial databases with noise. <i>Proc. KDD-96</i>, 226–231.</li>
+          <li>OpenStreetMap Wiki: <a href="https://wiki.openstreetmap.org/wiki/Key:opening_hours">Key:opening_hours</a> and <a href="https://wiki.openstreetmap.org/wiki/Tag:amenity%3Dcafe">Tag:amenity=cafe</a>.</li>
+          <li>opening_hours.js — <a href="https://github.com/opening-hours/opening_hours.js">github.com/opening-hours/opening_hours.js</a> (LGPL-3.0).</li>
+          <li>Ortsteile / Bezirke: Geoportal Berlin, ALKIS Berlin Ortsteile and Bezirke (dl-de/zero-2-0).</li>
+        </ol>
+      </details>
+      <div class="dl" id="downloads"></div>
+    </section>
+
+    <footer class="foot">
+      <p><b>Data &amp; licences.</b> Café data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>, <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL 1.0</a>, as of <span id="osmDate2">4 Nov 2026</span>. The derived tables are shared under ODbL too. Ortsteile and Bezirke © Geoportal Berlin (<a href="https://www.govdata.de/dl-de/zero-2-0">dl-de/zero-2-0</a>). Basemap © <a href="https://carto.com/attribution">CARTO</a>, © OpenStreetMap contributors.</p>
+      <p>Barış Parlatangiller · <a href="https://github.com/barisparlatangiller/30DMC26-D04-Clusters-Berlin-Coffee-Clusters">source &amp; method</a> · built with AI assistance (Claude, Anthropic)</p>
+    </footer>
+  </aside>
+</div>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="vendor/opening_hours.bundle.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

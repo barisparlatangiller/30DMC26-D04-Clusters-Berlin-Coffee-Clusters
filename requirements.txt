@@ -1,0 +1,7 @@
+geopandas>=1.0
+pyogrio>=0.9
+shapely>=2.0
+scikit-learn>=1.4
+requests>=2.31
+numpy
+pandas

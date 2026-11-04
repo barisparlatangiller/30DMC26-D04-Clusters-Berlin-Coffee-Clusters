@@ -1,0 +1,96 @@
+name: Build data and deploy map
+
+# Rebuilds docs/data from the committed OSM café export (data/) with opening_hours.js + DBSCAN,
+# adds Berlin Ortsteile/Bezirke from Geoportal Berlin, and publishes docs/ to GitHub Pages.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Europe/Berlin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install tools
+        run: |
+          pip install -r requirements.txt
+          npm ci
+          mkdir -p logs docs/data
+
+      - name: Browser bundle of opening_hours.js
+        run: npx esbuild pipeline/oh_entry.mjs --bundle --minify --format=iife --platform=browser --outfile=docs/vendor/opening_hours.bundle.js
+
+      - name: Cafés, opening hours, DBSCAN, Ortsteile
+        run: |
+          python pipeline/build_data.py 2>&1 | tee logs/01_build.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Summary
+        if: always()
+        run: |
+          ls -lh docs/data | tee logs/02_files.log
+          python -c "import json;s=json.load(open('docs/data/stats.json'));print(json.dumps({k:s.get(k) for k in ('n','inside_berlin','with_oh','oh_status','n_errors','baseline','peak','time_of_day','has_ortsteile')},ensure_ascii=False,indent=1))" > logs/03_stats.log || true
+          { echo '```json'; cat logs/03_stats.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report (annotations readable via the API)
+        if: always()
+        run: |
+          python - <<'PY'
+          import glob, os
+          def note(title, text):
+              text = text[-3500:].replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::notice title={title}::{text}")
+          for f in sorted(glob.glob("logs/*.log")):
+              lines = [l for l in open(f, errors="replace").read().splitlines() if l.strip()]
+              note(os.path.basename(f), "\n".join(lines[-45:]))
+          PY
+
+      - name: Publish result files to the 'data' branch (for QGIS users)
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/snap && cd /tmp/snap
+          for f in berlin_cafes_clusters.gpkg.zip berlin_cafes_clusters.csv.zip stats.json cafes.geojson ortsteile.geojson bezirke.geojson berlin.geojson; do
+            [ -f "$GITHUB_WORKSPACE/docs/data/$f" ] && cp "$GITHUB_WORKSPACE/docs/data/$f" .
+          done
+          printf '# Result files\n\nBuilt by the GitHub Action from commit %s on %s.\nCafé data (c) OpenStreetMap contributors, ODbL 1.0.\n' "$GITHUB_SHA" "$(date -u +%F)" > README.md
+          git init -q -b data && git add -A
+          git -c user.name="github-actions" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Results of $GITHUB_SHA"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data:data
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
