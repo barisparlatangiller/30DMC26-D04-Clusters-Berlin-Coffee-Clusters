@@ -247,7 +247,7 @@
     popup = new maplibregl.Popup({ closeButton: true, maxWidth: "300px", offset: 10 });
     let ready = false;
     const setup = () => {
-      if (ready || !map.isStyleLoaded()) return;
+      if (ready || !(map.style && map.style._loaded)) return;          // style JSON parsed; do not wait for basemap tiles
       ready = true;
       const first = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
       if (bezirke) {
