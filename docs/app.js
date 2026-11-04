@@ -201,7 +201,7 @@
   function initMap(berlin, bezirke) {
     const dark = matchMedia("(prefers-color-scheme: dark)").matches;
     map = new maplibregl.Map({
-      container: "map", hash: true, attributionControl: { compact: true },
+      container: "map", hash: true, attributionControl: false,
       center: [13.405, 52.505], zoom: 10.6, minZoom: 9, maxZoom: 18,
       style: `https://basemaps.cartocdn.com/gl/${dark ? "dark-matter" : "positron"}-gl-style/style.json`
     });
