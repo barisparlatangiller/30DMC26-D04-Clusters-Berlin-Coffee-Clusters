@@ -26,7 +26,9 @@ according to their tags.*
   and **Now**.
 * **Open at this time / All cafés.** Open cafés are coloured by cluster, open cafés outside any cluster are
   brown (noise), closed cafés are small grey dots and cafés with unknown hours are grey rings.
-* **Cluster outlines:** hover or click one to get the number of cafés and the full list.
+* **Smooth cluster areas:** each cluster is drawn as a soft shape that follows its cafés: a small Gaussian density
+  surface with sigma = 0.4 × eps, contoured with d3-contour and rounded. These replace sharp convex hulls. Hover or
+  click one to get the number of cafés, the area and the full list.
 * **Click a café** to see its name, address, `opening_hours`, its state at the selected time, when it next
   opens or closes, its cluster and a link to OSM.
 * **Live counters:** open, clusters, share clustered, largest cluster, and the open / closed / unknown split.
@@ -101,7 +103,7 @@ opening_hours, parse status, Ortsteil, Bezirk, baseline cluster and open hours i
 * **Café data © OpenStreetMap contributors, [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/).** The
   derived files in `docs/data` and `data/` are shared under ODbL 1.0 as well.
 * Ortsteile and Bezirke: Geoportal Berlin / ALKIS Berlin, [dl-de/zero-2-0](https://www.govdata.de/dl-de/zero-2-0).
-* opening_hours.js (LGPL-3.0) and SunCalc (BSD-2-Clause) are bundled in `docs/vendor/` together with their licences.
+* opening_hours.js (LGPL-3.0), SunCalc (BSD-2-Clause) and d3-contour (ISC) are bundled in `docs/vendor/` together with their licences.
 * Basemap © CARTO, © OpenStreetMap contributors.
 * Ester, M., Kriegel, H.-P., Sander, J. & Xu, X. (1996). A density-based algorithm for discovering clusters in
   large spatial databases with noise. *Proc. KDD-96*, 226–231.

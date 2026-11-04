@@ -185,12 +185,49 @@
     }
     render();
   }
+  // smooth cluster shapes: a small density surface per cluster (Gaussian kernel, sigma tied to eps), contoured with
+  // d3-contour and rounded with Chaikin — organic outlines that follow the cafés instead of sharp convex hulls
+  function chaikin(ring, n = 2) {
+    for (let k = 0; k < n; k++) {
+      const out = [];
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        out.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]], [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]]);
+      }
+      ring = out;
+    }
+    return ring;
+  }
+  function blob(c) {
+    const P = c.ids.map((i) => C.features[i].geometry.coordinates);
+    const lat0 = c.ctr[1], kx = Math.cos(lat0 * Math.PI / 180) * 111320, ky = 110574;
+    const xs = P.map((p) => (p[0] - c.ctr[0]) * kx), ys = P.map((p) => (p[1] - c.ctr[1]) * ky);
+    const sig = 0.4 * state.eps, pad = 3 * sig, thr = 0.55;
+    const x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - pad, x1 = Math.max(...xs) + pad, y1 = Math.max(...ys) + pad;
+    const cell = Math.max(12, Math.max(x1 - x0, y1 - y0) / 260);
+    const w = Math.ceil((x1 - x0) / cell) + 1, h = Math.ceil((y1 - y0) / cell) + 1;
+    const v = new Float64Array(w * h), r = Math.ceil(3 * sig / cell), s2 = 2 * sig * sig;
+    for (let k = 0; k < xs.length; k++) {
+      const gx = (xs[k] - x0) / cell, gy = (ys[k] - y0) / cell, cx = Math.round(gx), cy = Math.round(gy);
+      for (let j = Math.max(0, cy - r); j <= Math.min(h - 1, cy + r); j++)
+        for (let i = Math.max(0, cx - r); i <= Math.min(w - 1, cx + r); i++) {
+          const dx = (i - gx) * cell, dy = (j - gy) * cell;
+          v[j * w + i] += Math.exp(-(dx * dx + dy * dy) / s2);
+        }
+    }
+    let n = 0; for (let q = 0; q < v.length; q++) if (v[q] >= thr) n++;
+    c.area = n * cell * cell / 1e6;
+    const mp = window.d3contours().size([w, h]).thresholds([thr])(v)[0];
+    const toLL = ([gx, gy]) => [c.ctr[0] + (x0 + gx * cell) / kx, c.ctr[1] + (y0 + gy * cell) / ky];
+    return mp.coordinates.map((poly) => poly.map((ring) => { const sm = chaikin(ring.slice(0, -1), 3).map(toLL); return sm.concat([sm[0]]); }));
+  }
   function hullFC() {
-    return { type: "FeatureCollection", features: clusters.filter((c) => c.hull.length >= 3).map((c) => {
-      const ring = padRing(c.hull, 45);
-      return { type: "Feature", id: c.rank, properties: { r: c.rank, n: c.n, col: c.c, name: c.name },
-               geometry: { type: "Polygon", coordinates: [ring.concat([ring[0]])] } };
-    }) };
+    if (!window.d3contours) return { type: "FeatureCollection", features: [] };
+    return { type: "FeatureCollection", features: clusters.map((c) => {
+      const mp = blob(c);
+      return mp.length ? { type: "Feature", id: c.rank, properties: { r: c.rank, n: c.n, col: c.c, name: c.name },
+                           geometry: { type: "MultiPolygon", coordinates: mp } } : null;
+    }).filter(Boolean) };
   }
   function labelFC() {
     return { type: "FeatureCollection", features: clusters.slice(0, 14).map((c) => ({ type: "Feature",
@@ -222,8 +259,9 @@
         map.addLayer({ id: "berlin", type: "line", source: "berlin", paint: { "line-color": dark ? "#8a8378" : "#857c70", "line-width": 1.6 } }, first);
       }
       map.addSource("hulls", { type: "geojson", data: hullFC() });
-      map.addLayer({ id: "hf", type: "fill", source: "hulls", paint: { "fill-color": ["get", "col"], "fill-opacity": ["case", ["boolean", ["feature-state", "hl"], false], 0.32, 0.14] } });
-      map.addLayer({ id: "hl", type: "line", source: "hulls", paint: { "line-color": ["get", "col"], "line-width": ["case", ["boolean", ["feature-state", "hl"], false], 2.6, 1.3], "line-opacity": 0.9 } });
+      map.addLayer({ id: "hg", type: "line", source: "hulls", paint: { "line-color": ["get", "col"], "line-width": ["interpolate", ["linear"], ["zoom"], 10, 6, 15, 18], "line-blur": ["interpolate", ["linear"], ["zoom"], 10, 5, 15, 14], "line-opacity": ["case", ["boolean", ["feature-state", "hl"], false], 0.45, 0.22] } });
+      map.addLayer({ id: "hf", type: "fill", source: "hulls", paint: { "fill-color": ["get", "col"], "fill-antialias": true, "fill-opacity": ["case", ["boolean", ["feature-state", "hl"], false], 0.34, 0.17] } });
+      map.addLayer({ id: "hl", type: "line", source: "hulls", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": ["get", "col"], "line-width": ["case", ["boolean", ["feature-state", "hl"], false], 2.2, 1.1], "line-opacity": 0.75, "line-blur": 0.4 } });
       map.addSource("cafes", { type: "geojson", data: C });
       const r = (a, b) => ["interpolate", ["linear"], ["zoom"], 10, a, 15, b];
       map.addLayer({ id: "c-off", type: "circle", source: "cafes", filter: ["==", ["get", "in"], 0],
@@ -276,7 +314,7 @@
   }
   function applyHulls() {
     if (!map || !map.getLayer("hf")) return;
-    for (const id of ["hf", "hl", "lab"]) map.setLayoutProperty(id, "visibility", state.hulls ? "visible" : "none");
+    for (const id of ["hg", "hf", "hl", "lab"]) map.setLayoutProperty(id, "visibility", state.hulls ? "visible" : "none");
   }
   const stLabel = (s) => s === 1 ? "open" : s === 2 ? "opening hours unknown" : "closed";
 
@@ -324,7 +362,7 @@
       <h3>${esc(c.name)}</h3>
       <div class="kpis"><div class="kpi"><b>${c.n}</b><span>cafés ${state.mode === "open" ? "open" : "in cluster"}</span></div>
         <div class="kpi"><b>${fmt(100 * c.n / Math.max(1, lab.filter((x) => x >= -1).length), 1)} %</b><span>of all ${state.mode === "open" ? "open " : ""}cafés</span></div>
-        <div class="kpi"><b>${fmt(areaKm2(c.hull), 2)}</b><span>km² outline</span></div></div>
+        <div class="kpi"><b>${fmt(c.area ?? areaKm2(c.hull), 2)}</b><span>km² cluster area</span></div></div>
       <ul class="clist">${rows.map((p) => `<li data-i="${p.i}"><b>${esc(p.n || "Unnamed café")}</b><small>${esc(p.a || "")}</small></li>`).join("")}</ul>`;
     d.querySelector(".close").onclick = () => { d.hidden = true; state.sel = null; map.removeFeatureState({ source: "hulls" }); };
     d.querySelectorAll("li[data-i]").forEach((li) => li.onclick = () => {
@@ -490,6 +528,6 @@
       <div class="lg-row"><i style="background:${S_OPEN_NOISE};transform:scale(.8)"></i>${open ? "open, " : ""}no cluster nearby <small>${fmt(lab.filter((x) => x === -1).length)}</small></div>
       ${open ? `<div class="lg-row"><i style="background:${S_CLOSED};transform:scale(.6)"></i>closed <small>${fmt(c)}</small></div>
       <div class="lg-row"><i style="border:1.5px solid ${S_UNK};background:none;transform:scale(.7)"></i>opening hours unknown <small>${fmt(u)}</small></div>` : ""}
-      <div class="lg-row"><i class="sq" style="background:${PAL[1]}33;border:1.5px solid ${PAL[1]}"></i>cluster outline <small>click it</small></div>`;
+      <div class="lg-row"><i style="background:${PAL[1]}33;border:1.5px solid ${PAL[1]};box-shadow:0 0 6px ${PAL[1]}66"></i>cluster area <small>click it</small></div>`;
   }
 })();
